@@ -6,12 +6,10 @@ from . import common_parser
 
 class Parser(common_parser.Parser):
     def is_comment(self, node):
-        # return node.type in ["line_comment", "block_comment"]
-        pass
+        return node.type == "comment" #not done
 
     def is_identifier(self, node):
-        # return node.type == "identifier"
-        pass
+        return node.type == "identifier" #not done
 
     def obtain_literal_handler(self, node):
         LITERAL_MAP = {
