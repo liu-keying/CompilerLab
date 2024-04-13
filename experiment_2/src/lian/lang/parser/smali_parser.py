@@ -5,8 +5,8 @@ from . import common_parser
 
 class Parser(common_parser.Parser):
     def is_comment(self, node):
-        # return node.type in ["line_comment", "block_comment"]
-        pass
+        return node.type == "comment"
+        #pass
 
     def is_identifier(self, node):
         # return node.type == "identifier"

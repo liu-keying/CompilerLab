@@ -737,7 +737,7 @@ module.exports = grammar({
     // Workaround to https://github.com/tree-sitter/tree-sitter/issues/1156
     // We give names to the token_ constructs containing a regexp
     // so as to obtain a node in the CST.
-    string_fragment: _ => token.immediate(prec(1, /[^"\\]+/)),
+    string_fragment:l _ => token.immediate(prec(1, /[^"\\]+/)),
 
     _escape_sequence: $ => choice(
       prec(2, token.immediate(seq('\\', /[^abfnrtvxu'\"\\\?]/))),
