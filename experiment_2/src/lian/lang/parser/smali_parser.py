@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from . import common_parser
+import re
 
 
 class Parser(common_parser.Parser):
@@ -9,8 +10,8 @@ class Parser(common_parser.Parser):
         #pass
 
     def is_identifier(self, node):
-        # return node.type == "identifier"
-        pass
+        return node.type == "identifier"
+        # pass
 
     def obtain_literal_handler(self, node):
         LITERAL_MAP = {
@@ -39,6 +40,7 @@ class Parser(common_parser.Parser):
 
     def check_expression_handler(self, node):
         EXPRESSION_HANDLER_MAP = {
+            "primary_expression": self.primary_expression
         }
 
         return EXPRESSION_HANDLER_MAP.get(node.type, None)
@@ -61,3 +63,19 @@ class Parser(common_parser.Parser):
     def statement(self, node, statements):
         handler = self.check_statement_handler(node)
         return handler(node, statements)
+    
+    def primary_expression(self, node, statements):
+        opcode = self.find_child_by_field(node, "opcode")
+        shadow_opcode = self.read_node_text(opcode)
+        if shadow_opcode == "nop":
+            return self.tmp_variable(statements)
+        elif re.compile(r'^move.*').match(shadow_opcode):
+            values = self.find_children_by_field(node, "value")
+            v0 = self.read_node_text(values[0])
+            v1 = self.read_node_text(values[1])
+            statements.append({"assign_stmt": {"target": v0, "operand": v1}})
+            return v0
+        elif re.compile(r'^return.*').match(shadow_opcode):
+            ...
+
+        
