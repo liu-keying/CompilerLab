@@ -76,6 +76,26 @@ class Parser(common_parser.Parser):
             statements.append({"assign_stmt": {"target": v0, "operand": v1}})
             return v0
         elif re.compile(r'^return.*').match(shadow_opcode):
-            ...
+            pass
+        elif re.compile(r'^add.*/2addr').match(shadow_opcode):
+            return self.binary_expression(node, statements, "+")
+        elif re.compile(r'^sub.*/2addr').match(shadow_opcode):
+            return self.binary_expression(node, statements, "-")
+        elif re.compile(r'^add.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "+")
 
+    def binary_expression_2addr(self, node, statements, op):
+        values = self.find_children_by_field(node, "value")
+        dest = self.read_node_text(values[0])
+        source = self.read_node_text(values[1])
+        statements.append({"assign_stmt": {"target": dest, "operator": op, "operand": dest,"operand2": source}})
+        return dest
+
+    def binary_expression(self, node, statements, op):
+        values = self.find_children_by_field(node, "value")
+        dest = self.read_node_text(values[0])
+        source1 = self.read_node_text(values[1])
+        source2 = self.read_node_text(values[2])
+        statements.append({"assign_stmt": {"target": dest, "operator": op, "operand": source1,"operand2": source2}})
+        return dest
         
