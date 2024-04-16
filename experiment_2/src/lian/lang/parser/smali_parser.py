@@ -10,7 +10,7 @@ class Parser(common_parser.Parser):
         #pass
 
     def is_identifier(self, node):
-        return node.type == "identifier"
+        return node.type == "identifier" or node.type == "variable" or node.type == "parameter" 
         # pass
 
     def obtain_literal_handler(self, node):
@@ -40,7 +40,7 @@ class Parser(common_parser.Parser):
 
     def check_expression_handler(self, node):
         EXPRESSION_HANDLER_MAP = {
-            "primary_expression": self.primary_expression
+            "expression": self.primary_expression
         }
 
         return EXPRESSION_HANDLER_MAP.get(node.type, None)
@@ -65,12 +65,13 @@ class Parser(common_parser.Parser):
         return handler(node, statements)
     
     def primary_expression(self, node, statements):
-        opcode = self.find_child_by_field(node, "opcode")
+        #print(node.sexp())
+        opcode = self.find_child_by_type(node, "opcode")
         shadow_opcode = self.read_node_text(opcode)
         if shadow_opcode == "nop":
             return self.tmp_variable(statements)
         elif re.compile(r'^move.*').match(shadow_opcode):
-            values = self.find_children_by_field(node, "value")
+            values = self.find_child_by_type(node, "value")
             v0 = self.read_node_text(values[0])
             v1 = self.read_node_text(values[1])
             statements.append({"assign_stmt": {"target": v0, "operand": v1}})
@@ -78,24 +79,60 @@ class Parser(common_parser.Parser):
         elif re.compile(r'^return.*').match(shadow_opcode):
             pass
         elif re.compile(r'^add.*/2addr').match(shadow_opcode):
-            return self.binary_expression(node, statements, "+")
-        elif re.compile(r'^sub.*/2addr').match(shadow_opcode):
-            return self.binary_expression(node, statements, "-")
-        elif re.compile(r'^add.*[^/2addr]').match(shadow_opcode):
             return self.binary_expression_2addr(node, statements, "+")
+        elif re.compile(r'^sub.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "-")
+        elif re.compile(r'^mul.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "*")
+        elif re.compile(r'^div.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "/")
+        elif re.compile(r'^rem.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "%")
+        elif re.compile(r'^and.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "&")
+        elif re.compile(r'^or.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "|")
+        elif re.compile(r'^xor.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "^")
+        elif re.compile(r'^shl.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, "<<")
+        elif re.compile(r'^shr.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, ">>")
+        elif re.compile(r'^ushr.*/2addr').match(shadow_opcode):
+            return self.binary_expression_2addr(node, statements, ">>>")
+        elif re.compile(r'^add.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "+")
+        elif re.compile(r'^sub.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "-")
+        elif re.compile(r'^mul.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "*")
+        elif re.compile(r'^div.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "/")
+        elif re.compile(r'^rem.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "%")
+        elif re.compile(r'^and.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "&")
+        elif re.compile(r'^or.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "|")
+        elif re.compile(r'^xor.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "^")
+        elif re.compile(r'^shl.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, "<<")
+        elif re.compile(r'^shr.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, ">>")
+        elif re.compile(r'^ushr.*[^/2addr]').match(shadow_opcode):
+            return self.binary_expression(node, statements, ">>>")
 
     def binary_expression_2addr(self, node, statements, op):
-        values = self.find_children_by_field(node, "value")
-        dest = self.read_node_text(values[0])
-        source = self.read_node_text(values[1])
+        dest = self.parse(node.named_children[1], statements)
+        source = self.parse(node.named_children[2], statements)
         statements.append({"assign_stmt": {"target": dest, "operator": op, "operand": dest,"operand2": source}})
         return dest
 
     def binary_expression(self, node, statements, op):
-        values = self.find_children_by_field(node, "value")
-        dest = self.read_node_text(values[0])
-        source1 = self.read_node_text(values[1])
-        source2 = self.read_node_text(values[2])
+        dest = self.parse(node.named_children[1], statements)
+        source1 = self.parse(node.named_children[2], statements)
+        source2 = self.parse(node.named_children[3], statements)
         statements.append({"assign_stmt": {"target": dest, "operator": op, "operand": source1,"operand2": source2}})
         return dest
         
