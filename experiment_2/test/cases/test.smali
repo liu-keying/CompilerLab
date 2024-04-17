@@ -7,6 +7,8 @@
 
     add-int v1,v2,v3
     sub-int/2addr v5,v6
+    neg-long v6,v7
+    int-to-double p8,p9
     return-void
     sget-object v0, Ljava/lang/System;->out:Ljava/io/PrintStream;
     const-string	v1, "Hello World!"

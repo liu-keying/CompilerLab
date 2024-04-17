@@ -122,7 +122,25 @@ class Parser(common_parser.Parser):
             return self.binary_expression(node, statements, ">>")
         elif re.compile(r'^ushr.*[^/2addr]').match(shadow_opcode):
             return self.binary_expression(node, statements, ">>>")
+        
+        elif re.compile(r'^neg.*').match(shadow_opcode):
+            return self.unary_expression(node, statements, "-")
+        elif re.compile(r'^not.*').match(shadow_opcode):
+            return self.unary_expression(node, statements, "~")
+        
+        elif shadow_opcode in ['int-to-long','int-to-float','int-to-double','long-to-int',
+                               'long-to-float','long-to-double','float-to-int','float-to-long',
+                               'float-to-double','double-to-int','double-to-long',
+                               'double-to-float','int-to-byte','int-to-char','int-to-short']:
+            return self.unary_expression(node, statements, 'cast')
+        
 
+    def unary_expression(self, node, statements,op):
+        dest = self.parse(node.named_children[1], statements)
+        source = self.parse(node.named_children[2], statements)
+        statements.append({"assign_stmt": {"target": dest, "operator": op, "operand": source}})
+        return dest
+    
     def binary_expression_2addr(self, node, statements, op):
         dest = self.parse(node.named_children[1], statements)
         source = self.parse(node.named_children[2], statements)
