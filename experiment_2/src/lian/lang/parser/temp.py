@@ -134,19 +134,8 @@ class Parser(common_parser.Parser):
             else:
                 type = self.read_node_text(self.find_child_by_field(values[2], "primitives"))
                 v1 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
+                tmp_var = self.tmp_variable(statements)
                 statements.append({"new_array": {"type": type, "target": tmp_var}})
-
-                value = self.find_child_by_field(node, "value")
-                if value and value.named_child_count > 0:
-                    index = 0
-                    for child in value.named_children:
-                        if self.is_comment(child):
-                            continue
-
-                        shadow_child = self.parse(child, statements)
-                        statements.append({"array_write": {"array": tmp_var, "index": str(index), "source": shadow_child}})
-                        index += 1
-
                 return tmp_var
         elif re.compile(r'^filled.*').match(shadow_opcode):
             # filled-new-array创建一个新的数组，并立即用给定的值填充它

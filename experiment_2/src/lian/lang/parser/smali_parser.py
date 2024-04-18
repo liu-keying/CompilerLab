@@ -65,20 +65,26 @@ class Parser(common_parser.Parser):
         return handler(node, statements)
     
     def primary_expression(self, node, statements):
-        #print(node.sexp())
+        print(node.sexp())
         opcode = self.find_child_by_type(node, "opcode")
         shadow_opcode = self.read_node_text(opcode)
-        values = self.find_children_by_field(node, "value")
+        print(shadow_opcode)
+        variables = self.find_children_by_type(node, "variable")
+        parameters = self.find_children_by_type(node, "parameter")
+        values = variables + parameters
+        print(values)
+        # return
+        # values = self.find_children_by_type(node, "variable")
         if shadow_opcode == "nop":
             return ''
         elif re.compile(r'^move.*').match(shadow_opcode):
             if "result" in shadow_opcode or "exception" in shadow_opcode:
-                v0 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
+                v0 = self.read_node_text(values[0])
                 tmp_var = self.tmp_variable(statements)
                 statements.append({"assign_stmt": {"target": v0, "operand": tmp_var}})
             else:
-                v0 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
-                v1 = self.read_node_text(self.find_child_by_field(values[1], "register").namedchildren[0])
+                v0 = self.read_node_text(values[0])
+                v1 = self.read_node_text(values[1])
                 statements.append({"assign_stmt": {"target": v0, "operand": v1}})
             return v0
         elif re.compile(r'^return.*').match(shadow_opcode):
@@ -92,29 +98,31 @@ class Parser(common_parser.Parser):
                 statements.append({"return_stmt": {"target": shadow_name}})
                 return shadow_name
         elif re.compile(r'^const.*').match(shadow_opcode):
-            v0 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
+            print(values[0])
+            print(self.read_node_text(values[0]))
+            v0 = self.read_node_text(values[0])
             node = values[1]
-            if self.find_child_by_field(node, 'literal'):
-                v1 = self.read_node_text(self.find_child_by_field(node, 'literal').namedchildren[0])
-            elif self.find_child_by_field(node, 'identifier'):
-                v1 = self.read_node_text(self.find_child_by_field(node, 'identifier'))
+            if self.find_child_by_type(node, 'literal'):
+                v1 = self.read_node_text(self.find_child_by_type(node, 'literal').namedchildren[0])
+            elif self.find_child_by_type(node, 'identifier'):
+                v1 = self.read_node_text(self.find_child_by_type(node, 'identifier'))
             statements.append({"assign_stmt": {"target": v0, "operand": v1}})
             return v0
         elif re.compile(r'^check.*').match(shadow_opcode):
             pass
         elif shadow_opcode == "instance-of":
-            v1 = self.read_node_text(self.find_child_by_field(values[1], "register").namedchildren[0])
+            v1 = self.read_node_text(values[1])
             v2 = self.parse(values[2], statements)
             tmp_var = self.tmp_variable(statements)
             statements.append({"assign_stmt":
                                    {"target": tmp_var, "operator": "instanceof", "operand": v1,
                                     "operand2": v2}})
-            v0 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
+            v0 = self.read_node_text(values[0])
             statements.append({"assign_stmt": {"target": v0, "operand": tmp_var}})
             return v0
         elif shadow_opcode == 'array-length':
-            v0 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
-            v1 = self.read_node_text(self.find_child_by_field(values[1], "register").namedchildren[0])
+            v0 = self.read_node_text(values[0])
+            v1 = self.read_node_text(values[1])
             statements.append({"assign_stmt": {"target": v0, "operand": v1, "operator": "array-length"}})
             # array-length v0, v1 将 v1 中数组的长度计算出来，然后将这个长度值存储到 v0 中
             pass
@@ -128,12 +136,12 @@ class Parser(common_parser.Parser):
                 tmp_var = self.tmp_variable(statements)
                 glang_node["target"] = tmp_var
                 statements.append({"new_instance": glang_node})
-                v0 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
+                v0 = self.read_node_text(values[0])
                 statements.append({"assign_stmt": {"target": v0, "operand": tmp_var}})
                 return v0
             else:
-                type = self.read_node_text(self.find_child_by_field(values[2], "primitives"))
-                v1 = self.read_node_text(self.find_child_by_field(values[0], "register").namedchildren[0])
+                type = self.read_node_text(self.find_child_by_type(values[2], "primitives"))
+                v1 = self.read_node_text(values[0])
                 tmp_var = self.tmp_variable(statements)
                 statements.append({"new_array": {"type": type, "target": tmp_var}})
                 return tmp_var
