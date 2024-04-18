@@ -15,8 +15,15 @@ class Parser(common_parser.Parser):
 
     def obtain_literal_handler(self, node):
         LITERAL_MAP = {
+            "number":self.regular_number_literal,
+            "float" : self.regular_number_literal,
+            "NaN":self.regular_literal,
+            "Infinity":self.regular_literal,
+            "string":self.string_literal,
+            "boolean":self.regular_literal,
+            "character":self.character_literal,
+            "null":self.regular_literal
         }
-
         return LITERAL_MAP.get(node.type, None)
 
     def is_literal(self, node):
@@ -25,6 +32,34 @@ class Parser(common_parser.Parser):
     def literal(self, node, statements, replacement):
         handler = self.obtain_literal_handler(node)
         return handler(node, statements, replacement)
+    
+    def string_literal(self, node, statements, replacement):
+        replacement = []
+        for child in node.named_children:
+            self.parse(child, statements, replacement)
+
+        ret = self.read_node_text(node)
+        if replacement:
+            for r in replacement:
+                (expr, value) = r
+                ret = ret.replace(self.read_node_text(expr), value)
+
+        ret = self.handle_hex_string(ret)
+
+        return self.escape_string(ret)
+
+    def character_literal(self, node, statements, replacement):
+        value = self.read_node_text(node)
+        return "'%s'" % value
+    
+    def regular_number_literal(self, node, statements, replacement):
+        value = self.read_node_text(node)
+        #value=re.compile(r'[LlSsTtf]').sub("",value)
+        value = self.common_eval(value)
+        return self.read_node_text(node)
+
+    def regular_literal(self, node, statements, replacement):
+        return self.read_node_text(node)
 
     def check_declaration_handler(self, node):
         DECLARATION_HANDLER_MAP = {
@@ -65,7 +100,7 @@ class Parser(common_parser.Parser):
         return handler(node, statements)
     
     def primary_expression(self, node, statements):
-        #print(node.sexp())
+        print(node.sexp())
         opcode = self.find_child_by_type(node, "opcode")
         shadow_opcode = self.read_node_text(opcode)
         values = self.find_children_by_field(node, "value")
@@ -179,7 +214,15 @@ class Parser(common_parser.Parser):
         elif re.compile(r'^aput.*').match(shadow_opcode):
             pass
         
+        elif re.compile(r'^invoke.*').match(shadow_opcode):
+            pass
 
+        elif re.compile(r'^rsub.*').match(shadow_opcode):
+            dest = self.parse(node.named_children[1], statements)
+            source1 = self.parse(node.named_children[2], statements)
+            source2 = self.parse(node.named_children[3], statements)
+            statements.append({"assign_stmt": {"target": dest, "operator": '-', "operand": source2,"operand2": source2}})
+            return dest
         elif re.compile(r'^add.*/2addr').match(shadow_opcode):
             return self.binary_expression_2addr(node, statements, "+")
         elif re.compile(r'^sub.*/2addr').match(shadow_opcode):
@@ -236,7 +279,36 @@ class Parser(common_parser.Parser):
                                'double-to-float','int-to-byte','int-to-char','int-to-short']:
             return self.unary_expression(node, statements, 'cast')
         
+        elif re.compile(r'^iput.*').match(shadow_opcode): 
+            source = self.parse(node.named_children[1], statements)
+            receiver_object = self.parse(node.named_children[2], statements)
+            field=self.find_child_by_type(node.named_children[3],"field_identifier")
+            shadow_field=self.read_node_text(field)
+            statements.append({"field_write": {"receiver_object": receiver_object, "field": shadow_field, "source": source}})
+        elif re.compile(r'^iget.*').match(shadow_opcode):
+            target = self.parse(node.named_children[1], statements)
+            receiver_object = self.parse(node.named_children[2], statements)
+            field=self.find_child_by_type(node.named_children[3],"field_identifier")
+            shadow_field=self.read_node_text(field)
+            statements.append({"field_read": {"target": target, "receiver_object": receiver_object, "field": shadow_field}})
+        elif re.compile(r'^sget.*').match(shadow_opcode):
+            target = self.parse(node.named_children[1], statements)
+            source = node.named_children[2]
+            receiver_object = self.find_child_by_type(source,"class_identifier")
+            shadow_receiver_object=self.read_node_text(receiver_object)
+            field = self.find_child_by_type(source,"field_identifier")
+            shadow_field = self.read_node_text(field)
+            statements.append({"field_read": {"target": target, "receiver_object": shadow_receiver_object, "field": shadow_field}})
+        elif re.compile(r'^sput.*').match(shadow_opcode):
+            source = self.parse(node.named_children[1], statements)
+            target = node.named_children[2]
+            receiver_object = self.find_child_by_type(target,"class_identifier")
+            shadow_receiver_object=self.read_node_text(receiver_object)
+            field = self.find_child_by_type(target,"field_identifier")
+            shadow_field = self.read_node_text(field)
+            statements.append({"field_write": {"receiver_object": shadow_receiver_object, "field": shadow_field, "source": source}})
 
+    
     def unary_expression(self, node, statements,op):
         dest = self.parse(node.named_children[1], statements)
         source = self.parse(node.named_children[2], statements)

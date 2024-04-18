@@ -1,4 +1,4 @@
-/*package aafadf.csfdafqreqw.boqrwiq.cqrqwerq;
+package aafadf.csfdafqreqw.boqrwiq.cqrqwerq;
 
 public class class_decl extends abc implements c,d,e,f permits a,b,c
 {
@@ -29,7 +29,3 @@ public class ad  implements clasdlfsad.o121l2jlj.dlasjdflajdslf.dlasjflajs
         a(a, b, c, d);
     }
 }
-*/
-
-a.b.c.e.d=2;
-f=a.b.c+1;
