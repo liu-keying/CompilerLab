@@ -494,15 +494,15 @@ module.exports = grammar({
     directive: $ => choice(
       $.line_directive,
       $.locals_directive,
-      $.local_directive,
+      $.local_directive,-
       $.registers_directive,
       $.param_directive,
       $.parameter_directive,
       $.catch_directive,
       $.catchall_directive,
-      $.packed_switch_directive,
-      $.sparse_switch_directive,
-      $.array_data_directive,
+      $.packed_switch_directive,-
+      $.sparse_switch_directive,-
+      $.array_data_directive,-
       $.end_local_directive,
       $.restart_local_directive,
       $.prologue_directive,
