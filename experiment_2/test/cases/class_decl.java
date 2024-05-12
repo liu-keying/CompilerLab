@@ -1,11 +1,17 @@
-/*package aafadf.csfdafqreqw.boqrwiq.cqrqwerq;
+package aafadf.csfdafqreqw.boqrwiq.cqrqwerq;
 
 public class class_decl extends abc implements c,d,e,f permits a,b,c
 {
     public bac() {
         int aadfaf;
         int x = y = a + b * c;
-        abc[1] =4;
+        switch (x) {
+           case 1: y=1;break;
+           case 2: y=2;break;
+           case 3: int z=1;y=a;break;
+           default: y=4;
+        }
+        /*abc[1] =4;
         adefaf[1]++;
         f12123[1] = 5;
 
@@ -15,9 +21,9 @@ public class class_decl extends abc implements c,d,e,f permits a,b,c
     }
 
     public int aadfasf = 3 + 4 + 5;
-    public static int exxx = 3 + 4 + 5;
+    public static int exxx = 3 + 4 + 5;*/
 }
-
+/* 
 public class ad  implements clasdlfsad.o121l2jlj.dlasjdflajdslf.dlasjflajs
 {
     static public int a = 3 + a + c + d;
@@ -27,9 +33,5 @@ public class ad  implements clasdlfsad.o121l2jlj.dlasjdflajdslf.dlasjflajs
         System.super.super.super.out.println(Integer.toString(a) + " " + x);
 
         a(a, b, c, d);
-    }
+    }*/
 }
-*/
-
-a.b.c.e.d=2;
-f=a.b.c+1;

@@ -182,6 +182,7 @@ class Parser:
         return str(input_node.text, 'utf8')
 
     def parse(self, node, statements=[], replacement=[]):
+        #print(node.sexp())
         if not node:
             return ""
 

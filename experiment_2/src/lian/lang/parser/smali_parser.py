@@ -5,6 +5,12 @@ import re
 
 type_list = ['variable', 'parameter', 'number', 'string', 'float', 'character', 'identifier', 'list', 'body', 'class_identifier']
 
+label_list = []
+switch_table={}
+unsolved_switch={}
+array_data_list={}
+unsolved_array_data={}
+
 class Parser(common_parser.Parser):
     def is_comment(self, node):
         return node.type == "comment"
@@ -83,6 +89,7 @@ class Parser(common_parser.Parser):
 
     def check_declaration_handler(self, node):
         DECLARATION_HANDLER_MAP = {
+
         }
         return DECLARATION_HANDLER_MAP.get(node.type, None)
 
@@ -109,6 +116,14 @@ class Parser(common_parser.Parser):
 
     def check_statement_handler(self, node):
         STATEMENT_HANDLER_MAP = {
+            "local_directive" : self.local_directive,
+            "restart_local_directive" : self.local_directive,
+            "end_local_directive" : self.end_local_directive,
+            "label" : self.label_statement,
+            "jmp_label": self.label_statement,
+            "packed_switch_directive": self.packed_switch_directive,
+            "sparse_switch_directive": self.sparse_switch_directive,
+            "array_data_directive": self.array_data_directive,
         }
         return STATEMENT_HANDLER_MAP.get(node.type, None)
 
@@ -119,6 +134,97 @@ class Parser(common_parser.Parser):
         handler = self.check_statement_handler(node)
         return handler(node, statements)
     
+    def local_directive(self, node, statements):
+        #print(node.sexp())
+        register = node.named_children[0]
+        if register == None:
+            pass
+        register = self.read_node_text(register)
+        variable = None
+        data_type = None
+        if len(node.named_children)>1:
+            variable = node.named_children[1]
+            if variable.type == "string":
+                variable = self.read_node_text(self.find_child_by_type(variable, "string_fragment"))
+            else:
+                variable = self.read_node_text(variable)
+            data_type = self.read_node_text(node.named_children[2])
+            if len(node.named_children)>3:
+                full_type = node.named_children[3]
+                data_type = self.read_node_text(self.find_child_by_type(full_type, "string_fragment"))
+        if variable:
+            statements.append({"variable_decl": { "data_type": data_type, "name": register, "original_name": variable }})
+        else:
+            statements.append({"variable_decl": { "name": register }})
+        return register
+    
+    def end_local_directive(self, node, statements):
+        register = node.named_children[0]
+        if register == None:
+            pass
+        register = self.read_node_text(register)
+        statements.append({"del_statement": { "target": register }})
+
+    def label_statement(self, node, statements):
+        label= self.read_node_text(node)
+        statements.append({"label_stmt": { "name": label }})
+        label_list.append(label)
+
+    def packed_switch_directive(self, node, statements):
+        #print(node.sexp())
+        switch_label = label_list[-1]
+        condition = self.read_node_text(self.find_child_by_type(node, "number"))
+        if '0x' in condition:
+            shadow_condition = int(condition,base=16)
+        else:
+            shadow_condition = int(condition,base=10)
+        cases = []
+        for child in node.named_children:
+            if child.type == "label" or child.type == "jmp_label":
+                label = self.read_node_text(child)
+                cases.append({"case_stmt": {"condition": str(shadow_condition), "body": [{"goto_stmt": {"target": label}}]}})
+                shadow_condition += 1
+        switch_table[switch_label] = cases
+        if switch_label in unsolved_switch:
+            stmt_id = unsolved_switch[switch_label]
+            del unsolved_switch[switch_label]
+            #print(statements[stmt_id])
+            statements[stmt_id]["switch_stmt"]['body']= cases
+
+    def sparse_switch_directive(self, node, statements):
+        switch_label = label_list[-1]
+        conditions = self.find_children_by_type(node, "number")
+        labels = self.find_children_by_type(node, "label")
+        cases = []
+        for condition,label in zip(conditions,labels):
+            shadow_condition = self.read_node_text(condition)
+            shadow_label = self.read_node_text(label)
+            cases.append({"case_stmt": {"condition": str(shadow_condition), "body": [{"goto_stmt": {"target": shadow_label}}]}})
+        switch_table[switch_label] = cases
+        if switch_label in unsolved_switch:
+            stmt_id = unsolved_switch[switch_label]
+            del unsolved_switch[switch_label]
+            #print(statements[stmt_id])
+            statements[stmt_id]["switch_stmt"]['body']= cases
+
+    def array_data_directive(self, node, statements):
+        #print(node.sexp())
+        element_width = self.find_child_by_field(node, "element_width")
+        values = self.find_children_by_field(node,"value")
+        array_data_label= label_list[-1]
+        shadow_values = []
+        for value in values:
+            shadow_values.append(self.read_node_text(value))
+        array_data_list[array_data_label] = shadow_values
+        if array_data_label in unsolved_array_data:
+            stmt_id = unsolved_array_data[array_data_label]["stmt_id"]
+            array = unsolved_array_data[array_data_label]["array"]
+            del unsolved_array_data[array_data_label]
+            for i in range(len(shadow_values)):
+                statements.insert(stmt_id, {"array_write": {"array": array , "index":i , "src":shadow_values[i] }})
+                stmt_id += 1
+            
+
     def primary_expression(self, node, statements):
         #print(node.sexp())
         opcode = self.find_child_by_type(node, "opcode")
@@ -230,9 +336,16 @@ class Parser(common_parser.Parser):
                     statements.append({"assign_stmt": {"target": name, "operand": f'{tmp_var}[{i}]'}})
                 return tmp_var
         elif re.compile(r'^fill-.*').match(shadow_opcode):
-            v0 = self.read_node_text(values["variable"][0])
-            label = self.read_node_text(self.find_child_by_type(node, "label"))
-            statements.append({"assign_stmt": {"target": v0, "operand": label, "operator": "fill-array-data"}})
+            v0 = self.read_node_text(node.named_children[1])
+            array_label = self.read_node_text(node.named_children[2])
+            if array_label in array_data_list:
+                shadow_values= array_data_list[array_label]
+                for i in range(len(shadow_values)):
+                    statements.append({"array_write": {"array": v0 , "index":i , "src":shadow_values[i] }})
+            else:
+                unsolved_array_data[array_label] = {'array': v0, 'stmt_id':len(statements)}
+                
+            
             return v0
         elif re.compile(r'^throw.*').match(shadow_opcode):
             shadow_expr = self.read_node_text(values["variable"][0])
@@ -240,12 +353,17 @@ class Parser(common_parser.Parser):
             return
         elif re.compile(r'^goto.*').match(shadow_opcode):
             label = self.read_node_text(self.find_child_by_type(node, "label"))
-            statements.append({"goto": {"target": label}})
+            statements.append({"goto_stmt": {"target": label}})
             return
         elif re.search(r'-switch$', shadow_opcode):
-            p0 = self.read_node_text(values["parameter"][0])
-            label = self.read_node_text(self.find_child_by_type(node, "label"))
-            statements.append({"assign_stmt": {"target": p0, "operand": label, "operator": "switch"}})
+            p0 = self.read_node_text(node.named_children[1])
+            switch_label = self.read_node_text(self.find_child_by_type(node, "label"))
+            cases = None
+            if switch_label in switch_table:
+                cases = switch_table[switch_label]
+            else:
+                unsolved_switch[switch_label]= len(statements)
+            statements.append({"switch_stmt": {"condition": p0, "body": cases}})
             return p0
         elif re.compile(r'^cmp.*').match(shadow_opcode):
             v0 = self.read_node_text(values["variable"][0])
