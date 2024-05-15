@@ -3,13 +3,14 @@ package aafadf.csfdafqreqw.boqrwiq.cqrqwerq;
 public class class_decl extends abc implements c,d,e,f permits a,b,c
 {
     public bac() {
-        int aadfaf;
-        int x = y = a + b * c;
-        switch (x) {
-           case 1: y=1;break;
-           case 2: y=2;break;
-           case 3: int z=1;y=a;break;
-           default: y=4;
+        try{
+         int a=0;
+         int b=0;
+         int c=0;
+        }
+        catch(Exception e){
+            System.out.println("Exception");
+            int c;
         }
         /*abc[1] =4;
         adefaf[1]++;

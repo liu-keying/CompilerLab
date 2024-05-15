@@ -4,13 +4,13 @@ from . import common_parser
 import re
 
 type_list = ['variable', 'parameter', 'number', 'string', 'float', 'character', 'identifier', 'list', 'body', 'class_identifier']
-label_list = {}
+
+label_list = []
 switch_table={}
 unsolved_switch={}
 array_data_list={}
 unsolved_array_data={}
-latest_label = None
-tmp_exception = None
+
 class Parser(common_parser.Parser):
     def is_comment(self, node):
         return node.type == "comment"
@@ -69,25 +69,27 @@ class Parser(common_parser.Parser):
         return self.read_node_text(node)
 
     def check_declaration_handler(self, node):
-        # print(node.sexp())
         DECLARATION_HANDLER_MAP = {
-            "local_directive": self.variable_directive,
-            "param_directive": self.param_directive,
-            "parameter_directive": self.parameter_directive,
-            "array_data_directive": self.array_data_directive,
-            "annotation_directive": self.annotation_directive,
-            "line_directive": self.notmatch_directive,
-            "locals_directive": self.notmatch_directive,
-            "registers_directive": self.notmatch_directive,
-            "end_local_directive": self.end_local_directive,
-            "restart_local_directive": self.restart_local_directive,
-            "prologue_directive": self.notmatch_directive,
-            "epilogue_directive": self.notmatch_directive,
-            "source_directive": self.notmatch_directive,
-            "catch_directive":self.catch_directive,
-            "catchall_directive":self.catch_directive,
-            "packed_switch_directive": self.packed_switch_directive,
-            "sparse_switch_directive": self.sparse_switch_directive,
+        }
+        return DECLARATION_HANDLER_MAP.get(node.type, None)
+
+    def is_declaration(self, node):
+        return self.check_declaration_handler(node) is not None
+
+    def declaration(self, node, statements):
+        handler = self.check_declaration_handler(node)
+        return handler(node, statements)
+
+    def check_expression_handler(self, node):
+        EXPRESSION_HANDLER_MAP = {
+            "expression": self.primary_expression
+        }
+
+        return EXPRESSION_HANDLER_MAP.get(node.type, None)
+
+    def check_declaration_handler(self, node):
+        DECLARATION_HANDLER_MAP = {
+
         }
         return DECLARATION_HANDLER_MAP.get(node.type, None)
 
@@ -114,8 +116,14 @@ class Parser(common_parser.Parser):
 
     def check_statement_handler(self, node):
         STATEMENT_HANDLER_MAP = {
+            "local_directive" : self.local_directive,
+            "restart_local_directive" : self.local_directive,
+            "end_local_directive" : self.end_local_directive,
             "label" : self.label_statement,
             "jmp_label": self.label_statement,
+            "packed_switch_directive": self.packed_switch_directive,
+            "sparse_switch_directive": self.sparse_switch_directive,
+            "array_data_directive": self.array_data_directive,
         }
         return STATEMENT_HANDLER_MAP.get(node.type, None)
 
@@ -126,8 +134,99 @@ class Parser(common_parser.Parser):
         handler = self.check_statement_handler(node)
         return handler(node, statements)
     
+    def local_directive(self, node, statements):
+        #print(node.sexp())
+        register = node.named_children[0]
+        if register == None:
+            pass
+        register = self.read_node_text(register)
+        variable = None
+        data_type = None
+        if len(node.named_children)>1:
+            variable = node.named_children[1]
+            if variable.type == "string":
+                variable = self.read_node_text(self.find_child_by_type(variable, "string_fragment"))
+            else:
+                variable = self.read_node_text(variable)
+            data_type = self.read_node_text(node.named_children[2])
+            if len(node.named_children)>3:
+                full_type = node.named_children[3]
+                data_type = self.read_node_text(self.find_child_by_type(full_type, "string_fragment"))
+        if variable:
+            statements.append({"variable_decl": { "data_type": data_type, "name": register, "original_name": variable }})
+        else:
+            statements.append({"variable_decl": { "name": register }})
+        return register
+    
+    def end_local_directive(self, node, statements):
+        register = node.named_children[0]
+        if register == None:
+            pass
+        register = self.read_node_text(register)
+        statements.append({"del_statement": { "target": register }})
+
+    def label_statement(self, node, statements):
+        label= self.read_node_text(node)
+        statements.append({"label_stmt": { "name": label }})
+        label_list.append(label)
+
+    def packed_switch_directive(self, node, statements):
+        #print(node.sexp())
+        switch_label = label_list[-1]
+        condition = self.read_node_text(self.find_child_by_type(node, "number"))
+        if '0x' in condition:
+            shadow_condition = int(condition,base=16)
+        else:
+            shadow_condition = int(condition,base=10)
+        cases = []
+        for child in node.named_children:
+            if child.type == "label" or child.type == "jmp_label":
+                label = self.read_node_text(child)
+                cases.append({"case_stmt": {"condition": str(shadow_condition), "body": [{"goto_stmt": {"target": label}}]}})
+                shadow_condition += 1
+        switch_table[switch_label] = cases
+        if switch_label in unsolved_switch:
+            stmt_id = unsolved_switch[switch_label]
+            del unsolved_switch[switch_label]
+            #print(statements[stmt_id])
+            statements[stmt_id]["switch_stmt"]['body']= cases
+
+    def sparse_switch_directive(self, node, statements):
+        switch_label = label_list[-1]
+        conditions = self.find_children_by_type(node, "number")
+        labels = self.find_children_by_type(node, "label")
+        cases = []
+        for condition,label in zip(conditions,labels):
+            shadow_condition = self.read_node_text(condition)
+            shadow_label = self.read_node_text(label)
+            cases.append({"case_stmt": {"condition": str(shadow_condition), "body": [{"goto_stmt": {"target": shadow_label}}]}})
+        switch_table[switch_label] = cases
+        if switch_label in unsolved_switch:
+            stmt_id = unsolved_switch[switch_label]
+            del unsolved_switch[switch_label]
+            #print(statements[stmt_id])
+            statements[stmt_id]["switch_stmt"]['body']= cases
+
+    def array_data_directive(self, node, statements):
+        #print(node.sexp())
+        element_width = self.find_child_by_field(node, "element_width")
+        values = self.find_children_by_field(node,"value")
+        array_data_label= label_list[-1]
+        shadow_values = []
+        for value in values:
+            shadow_values.append(self.read_node_text(value))
+        array_data_list[array_data_label] = shadow_values
+        if array_data_label in unsolved_array_data:
+            stmt_id = unsolved_array_data[array_data_label]["stmt_id"]
+            array = unsolved_array_data[array_data_label]["array"]
+            del unsolved_array_data[array_data_label]
+            for i in range(len(shadow_values)):
+                statements.insert(stmt_id, {"array_write": {"array": array , "index":i , "src":shadow_values[i] }})
+                stmt_id += 1
+            
+
     def primary_expression(self, node, statements):
-        # print(node.sexp())
+        #print(node.sexp())
         opcode = self.find_child_by_type(node, "opcode")
         shadow_opcode = self.read_node_text(opcode)
         #print(shadow_opcode)
@@ -145,6 +244,7 @@ class Parser(common_parser.Parser):
                 statements.append({"assign_stmt": {"target": v0, "operand": tmp_return, "operator": "result"}})
             elif "exception" in shadow_opcode:
                 v0 = self.read_node_text(values["variable"][0])
+                global tmp_exception
                 statements.append({"assign_stmt": {"target": v0, "operand": tmp_exception, "operator": "exception"}})
             else:
                 v0 = self.read_node_text(values["variable"][0])
@@ -238,12 +338,14 @@ class Parser(common_parser.Parser):
         elif re.compile(r'^fill-.*').match(shadow_opcode):
             v0 = self.read_node_text(node.named_children[1])
             array_label = self.read_node_text(node.named_children[2])
-            if array_label in array_data_list.keys():
+            if array_label in array_data_list:
                 shadow_values= array_data_list[array_label]
                 for i in range(len(shadow_values)):
                     statements.append({"array_write": {"array": v0 , "index":i , "src":shadow_values[i] }})
             else:
                 unsolved_array_data[array_label] = {'array': v0, 'stmt_id':len(statements)}
+                
+            
             return v0
         elif re.compile(r'^throw.*').match(shadow_opcode):
             shadow_expr = self.read_node_text(values["variable"][0])
@@ -255,7 +357,7 @@ class Parser(common_parser.Parser):
             return
         elif re.search(r'-switch$', shadow_opcode):
             p0 = self.read_node_text(node.named_children[1])
-            switch_label = self.read_node_text(node.named_children[2])
+            switch_label = self.read_node_text(self.find_child_by_type(node, "label"))
             cases = None
             if switch_label in switch_table:
                 cases = switch_table[switch_label]
@@ -276,15 +378,15 @@ class Parser(common_parser.Parser):
             return v0
         elif re.compile(r'^if-.*').match(shadow_opcode):
             op = re.findall(r'if-([^ \n\r\t]+)', shadow_opcode)
-            v0 = self.read_node_text(node.named_children[1])
+            v0 = self.read_node_text(values["variable"][0])
             if 'z' not in op[0]:
-                v1 = self.read_node_text(node.named_children[2])
+                v1 = self.read_node_text(values["variable"][1])
             else:
                 v1 = "0"
             tmp_var = self.tmp_variable(statements)
             statements.append({"compare_stmt": {"target": tmp_var, "operator": op[0], "operand": v0,"operand2": v1}})
             label = self.read_node_text(self.find_child_by_type(node, "label"))
-            statements.append({"if_stmt":{"condition": tmp_var,"then_body":[{"goto_stmt": {"target": label}}]}})
+            statements.append({"goto_stmt": {"target": label, "condition": tmp_var}})
             return tmp_var
         elif re.compile(r'^aget.*').match(shadow_opcode):
             v0 = self.read_node_text(values["variable"][0])
@@ -301,7 +403,6 @@ class Parser(common_parser.Parser):
         
         elif re.compile(r'^invoke.*').match(shadow_opcode) or shadow_opcode=='execute-inline' or shadow_opcode=='excute-inline-range':
             #global tmp_return
-            #print(node.sexp())
             tmp_return=self.tmp_variable(statements)
             args_list = []
             args=node.named_children[1]
@@ -324,7 +425,7 @@ class Parser(common_parser.Parser):
             method = self.find_child_by_type(function,"method_signature")
             class_type=self.read_node_text(function.named_children[0])
             method_name = self.read_node_text(self.find_child_by_type(method,"method_identifier"))
-            data_type = self.read_node_text(method.named_children[-1])
+            data_type = self.read_node_text(method.named_children[2])
             if 'polymorphic' in shadow_opcode:
                 prototype=self.read_node_text(node.named_children[3])
             else :
@@ -440,165 +541,4 @@ class Parser(common_parser.Parser):
         source2 = self.parse(node.named_children[3], statements)
         statements.append({"assign_stmt": {"target": dest, "operator": op, "operand": source1,"operand2": source2}})
         return dest
-        
-    def param_directive(self, node, statements):
-        # print("param:", node.sexp())
-        name = self.read_node_text(self.find_child_by_type(node, "parameter"))
-        annotation_list = self.find_children_by_type(node, "annotation_directive")
-        if len(annotation_list):
-            for annotation in annotation_list:
-                self.annotation_directive(annotation, statements)
-        else:
-            shadow_value = self.read_node_text(node.named_children[1])
-            statements.append({"parameter_decl": {"name": name}})
-            statements.append({"assign_stmt": {"target": name, "operand": shadow_value}})
-        return name
-
-    def parameter_directive(self, node, statements):
-        # print(node.sexp())
-        annotation_list = self.find_children_by_type(node, "annotation_directive")
-        if len(annotation_list):
-            for annotation in annotation_list:
-                self.annotation_directive(annotation, statements)
-        return
-
-    def variable_directive(self, node, statements):
-        # print("variable:", node.sexp())
-        shadow_register = self.read_node_text(node.named_children[0])
-        if node.named_children[1]:
-            shadow_local = self.read_node_text(node.named_children[1])
-            shadow_data_type = self.read_node_text(node.named_children[2])
-            if self.find_child_by_type(node, "array_type"):
-                array_node = self.find_child_by_type(node, "array_type")
-                shadow_data_type = self.read_node_text(array_node)
-                statements.append({"variable_decl": {"name": shadow_local, "attr": "array", "data_type": shadow_data_type}})
-            else:
-                statements.append({"variable_decl": {"name": shadow_local, "data_type": shadow_data_type}})
-            statements.append({"assign_stmt": {"target": shadow_local, "operand": shadow_register}})
-        else:
-            statements.append({"variable_decl": {"name": shadow_register}})
-        return
-    
-    def annotation_directive(self, node, statements):
-        # print("annotation:", node.sexp())
-        shadow_annotation_visibility = self.read_node_text(node.named_children[0])
-        shadow_class_identifier = self.read_node_text(node.named_children[1])
-        annotation_property_list = node.named_children[2:]
-        glang_init_dict = {}
-        for annotation_property in annotation_property_list:
-            annotation_key = annotation_property.named_children[0]
-            annotation_value = self.find_child_by_type(annotation_property, "annotation_value")
-            glang_init_dict[self.read_node_text(annotation_key)] = self.read_node_text(annotation_value)
-        statements.append({"annotation_type_decl": {"attr": shadow_annotation_visibility, "name": shadow_class_identifier, "init": [glang_init_dict]}})
-        return
-
-    def notmatch_directive(self, node, statements):
-        # print("empty:", node.sexp())
-        return
-
-    def restart_local_directive(self, node, statements):
-        #print(node.sexp())
-        register = self.read_node_text(node.named_children[0])
-        statements.append({"variable_decl": { "name": register }})
-        return register
-    
-    def end_local_directive(self, node, statements):
-        register = self.read_node_text(node.named_children[0])
-        statements.append({"del_statement": { "target": register }})
-
-    def label_statement(self, node, statements):
-        label= self.read_node_text(node)
-        statements.append({"label_stmt": { "name": label }})
-        label_list[label]= len(statements)
-        global latest_label
-        latest_label = label
-
-    def packed_switch_directive(self, node, statements):
-        #print(node.sexp())
-        global latest_label
-        switch_label = latest_label
-        condition = self.read_node_text(self.find_child_by_type(node, "number"))
-        if '0x' in condition:
-            shadow_condition = int(condition,base=16)
-        else:
-            shadow_condition = int(condition,base=10)
-        cases = []
-        for child in node.named_children:
-            if child.type == "label" or child.type == "jmp_label":
-                label = self.read_node_text(child)
-                cases.append({"case_stmt": {"condition": str(shadow_condition), "body": [{"goto_stmt": {"target": label}}]}})
-                shadow_condition += 1
-        switch_table[switch_label] = cases
-        if switch_label in unsolved_switch.keys():
-            stmt_id = unsolved_switch[switch_label]
-            del unsolved_switch[switch_label]
-            statements[stmt_id]["switch_stmt"]['body']= cases
-
-    def sparse_switch_directive(self, node, statements):
-        #print(node.sexp())
-        global latest_label
-        switch_label = latest_label
-        conditions = self.find_children_by_type(node, "number")
-        labels = self.find_children_by_type(node, "label")
-        cases = []
-        for condition,label in zip(conditions,labels):
-            shadow_condition = self.read_node_text(condition)
-            shadow_label = self.read_node_text(label)
-            cases.append({"case_stmt": {"condition": str(shadow_condition), "body": [{"goto_stmt": {"target": shadow_label}}]}})
-        switch_table[switch_label] = cases
-        if switch_label in unsolved_switch.keys():
-            stmt_id = unsolved_switch[switch_label]
-            del(unsolved_switch[switch_label])
-            #print(statements[stmt_id])
-            statements[stmt_id]["switch_stmt"]['body']= cases
-
-    def array_data_directive(self, node, statements):
-        #print(node.sexp())
-        element_width = self.find_child_by_field(node, "element_width")
-        values = self.find_children_by_field(node,"value")
-        global latest_label
-        array_data_label= latest_label
-        shadow_values = []
-        for value in values:
-            shadow_values.append(self.read_node_text(value))
-        array_data_list[array_data_label] = shadow_values
-        if array_data_label in unsolved_array_data.keys():
-            stmt_id = unsolved_array_data[array_data_label]["stmt_id"]
-            array = unsolved_array_data[array_data_label]["array"]
-            del(unsolved_array_data[array_data_label])
-            for i in range(len(shadow_values)):
-                statements.insert(stmt_id, {"array_write": {"array": array , "index":i , "src":shadow_values[i] }})
-                stmt_id += 1
-
-    def catch_directive(self, node, statements):
-        exception= self.read_node_text(self.find_child_by_type(node,"class_identifier"))
-        global tmp_exception
-        tmp_exception = exception
-        labels=[]
-        for child in node.named_children:
-            if child.type == "label" or child.type == "jmp_label":
-                labels.append(self.read_node_text(child))
-        try_start_label = labels[0]
-        try_end_label = labels[1]
-        handler_label = labels[2]
-        stmt_start_id = label_list[try_start_label]
-        stmt_end_id = label_list[try_end_label]
-        body=[]
-        for id in range(stmt_start_id,stmt_end_id-1):
-            body.append(statements[id])
-        del(statements[stmt_start_id:stmt_end_id-1])
-        if exception is not None:
-            catch_body=[{"catch_clause":{"exception":exception,"body":[{"goto_stmt":{"target":handler_label}}]}}]
-        else:
-            catch_body=[{"catch_stmt":{"body":[{"goto_stmt":{"target":handler_label}}]}}]
-        statements.append({"try_stmt":{"body":body,"catch_body":catch_body}})
-        for key,value in label_list.items():
-            if value > stmt_end_id:
-                label_list[key] -= stmt_end_id - stmt_start_id - 1
-        for key,value in unsolved_switch.items():
-            if value > stmt_end_id:
-                unsolved_switch[key] -= stmt_end_id - stmt_start_id - 1
-        for key,value in unsolved_array_data.items():
-            if value["stmt_id"] > stmt_end_id:
-                unsolved_array_data[key]["stmt_id"] -= stmt_end_id - stmt_start_id - 1
         

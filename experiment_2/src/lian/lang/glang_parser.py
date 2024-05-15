@@ -154,7 +154,7 @@ PARSERS = {
     "llvm"      	: llvm_parser,
     "python"      	: python_parser,
     "ruby"      	: ruby_parser,
-    "smali"     	: smali_parser,
+    "smali"     	: smali_parser_temp,
     "swift"     	: swift_parser,
     "php"       	: php_parser,
     "codeql"    	: ql_parser,
