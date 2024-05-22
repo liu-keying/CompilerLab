@@ -71,6 +71,9 @@ class Parser(common_parser.Parser):
     def check_declaration_handler(self, node):
         # print(node.sexp())
         DECLARATION_HANDLER_MAP = {
+            "class_definition": self.class_definition,
+            "method_definition": self.method_definition,
+            "field_definition": self.field_definition,
             "local_directive": self.variable_directive,
             "param_directive": self.param_directive,
             "parameter_directive": self.parameter_directive,
@@ -175,10 +178,11 @@ class Parser(common_parser.Parser):
                 statements.append({"assign_stmt": {"target": v0, "operand": shadow_number}})
             return v0
         elif re.compile(r'^check.*').match(shadow_opcode):
-            v0 = self.read_node_text(values["variable"][0])
-            class_identifier = values['class_identifier'][0]
+            #print(node.sexp())
+            v0 = self.read_node_text(node.named_children[1])
+            class_identifier = node.named_children[2]
             shadow_class = self.read_node_text(class_identifier)
-            statements.append({"assign_stmt": {"target": v0, "operand": shadow_class, "operator": "check-cast"}})
+            statements.append({"type_cast_stmt": {"target": self.tmp_variable(statements), "data_type": shadow_class, "source":v0,"error":self.tmp_variable(statements)}})
             return v0
         elif shadow_opcode == "instance-of":
             v1 = self.read_node_text(values["variable"][1])
@@ -207,9 +211,9 @@ class Parser(common_parser.Parser):
                 statements.append({"assign_stmt": {"target": v0, "operand": tmp_var}})
                 return v0
             else:
-                type = self.read_node_text(self.find_child_by_type_type(node, "array_type", "primitive_type"))
-                v0 = self.read_node_text(values["variable"][0])
-                v1 = self.read_node_text(values["variable"][1])
+                type = self.read_node_text(node.named_children[3])
+                v0 = self.read_node_text(node.named_children[1])
+                v1 = self.read_node_text(node.named_children[2])
                 tmp_var = self.tmp_variable(statements)
                 statements.append({"new_array": {"type": type, "attr": v1, "target": tmp_var}})
                 statements.append({"assign_stmt": {"target": v0, "operand": tmp_var}})
@@ -456,6 +460,8 @@ class Parser(common_parser.Parser):
 
     def parameter_directive(self, node, statements):
         # print(node.sexp())
+        name = self.read_node_text(node.named_children[0])
+        statements.append({"parameter_decl": {"name": name}})
         annotation_list = self.find_children_by_type(node, "annotation_directive")
         if len(annotation_list):
             for annotation in annotation_list:
@@ -602,3 +608,103 @@ class Parser(common_parser.Parser):
             if value["stmt_id"] > stmt_end_id:
                 unsolved_array_data[key]["stmt_id"] -= stmt_end_id - stmt_start_id - 1
         
+    def class_definition(self,node, statements):
+        class_directive = self.find_child_by_type(node, "class_directive")
+        access_modifiers=self.find_child_by_type(class_directive,"access_modifiers")
+        attr=[]
+        if access_modifiers is not None:
+            access_modifier = self.find_children_by_type(access_modifiers,"access_modifier")
+            for modifier in access_modifier:
+                attr.append(self.read_node_text(modifier))
+        class_name = self.read_node_text(self.find_child_by_type(class_directive,"class_identifier"))
+        supers =[]
+        super_class = self.read_node_text(self.find_child_by_type_type(node,"super_directive","class_identifier"))
+        supers.append(super_class)
+        interfaces = self.find_children_by_type(node,"implements_directive")
+        for interface in interfaces:
+            interface_name = self.read_node_text(self.find_child_by_type(interface,"class_identifier"))
+            supers.append(interface_name)
+        methods = []
+        fields = []
+        static_init = []
+        init = []
+        for child in node.named_children:
+            if child.type == "method_definition":
+                self.parse(child,methods)
+            if child.type == "field_definition":
+                self.field_definition(child,fields,static_init,init,statements)
+            if child.type == "annotation_directive":
+                self.parse(child,statements)
+        statements.append({"class_decl":{"attr":attr,"name":class_name,"supers":supers,"static_init":static_init,"init":init,"fields":fields,"methods":methods}})
+        
+    def method_definition(self,node, statements):
+        #print(node.sexp())
+        access_modifiers=self.find_children_by_type(node,"access_modifier")
+        attr=[]
+        for modifier in access_modifiers:
+            attr.append(self.read_node_text(modifier))
+        if 'constructor' in self.read_node_text(node):
+            attr.append('constructor')
+        method_signature = self.find_child_by_type(node,"method_signature")
+        method_name = self.read_node_text(self.find_child_by_type(method_signature,"method_identifier"))
+        data_type = self.read_node_text(method_signature.named_children[-1])
+        parameter=self.find_child_by_type(method_signature,"parameters")
+        parameters_type =[]
+        if parameter:
+            for p in parameter.named_children:
+                parameters_type.append(self.read_node_text(p))
+        type_index=0
+        parameters=[]
+        init=[]
+        body=[]
+        for child in node.named_children:
+            temp_parameters=[]
+            if child.type == "method_signature" or child.type == "access_modifier":
+                pass
+            elif child.type == "param_directive":
+                self.param_directive(child,temp_parameters)
+            elif child.type == "parameter_directive":
+                self.parameter_directive(child,temp_parameters)
+            else:
+                self.parse(child,body)
+            for para in temp_parameters:
+                if "parameter_decl" in para:
+                    shadow_type=parameters_type[type_index]
+                    type_index+=1
+                    para["parameter_decl"]["data_type"] = shadow_type
+                    parameters.append(para)
+                elif "assign_stmt" in para:
+                    init.append(para)
+                else:
+                    body.append(para)
+        while type_index<len(parameters_type):
+            shadow_type=parameters_type[type_index]
+            type_index+=1
+            parameters.append({"parameter_decl":{"name":None,"data_type":shadow_type}})
+        statements.append({"method_decl":{"attr":attr,"data_type":data_type,"name":method_name,"parameters":parameters,"body":body}})
+                
+        
+    def field_definition(self,node, fields,static_init,init,body):
+        #print(node.sexp())
+        access_modifiers=self.find_child_by_type(node,"access_modifiers")
+        attr=[]
+        if access_modifiers is not None:
+            access_modifier = self.find_children_by_type(access_modifiers,"access_modifier")
+            for modifier in access_modifier:
+                attr.append(self.read_node_text(modifier))
+        field_identifier = self.read_node_text(self.find_child_by_type(node,"field_identifier"))
+        field_type = self.read_node_text(self.find_child_by_type(node,"field_type"))
+        shadow_value = None
+        for child in node.named_children:
+            if child.type != "access_modifiers" and child.type != "field_identifier" and child.type != "field_type" and child.type!= "annotation_directive":
+                shadow_value = self.read_node_text(child)
+            if child.type == "annotation_directive":
+                self.parse(child,body)
+        fields.append({"variable_decl":{"attr":attr,"name":field_identifier,"type":field_type}})
+        if shadow_value:
+            if "static" in attr:
+                static_init.append({"field_write": {"receiver_object": self.global_this(),
+                                                          "field": field_identifier, "source": shadow_value}})
+            else:
+                init.append({"field_write": {"receiver_object": self.global_this(),
+                                                          "field": field_identifier, "source": shadow_value}})
